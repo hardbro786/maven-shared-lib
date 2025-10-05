@@ -1,48 +1,38 @@
 def call(Map config = [:]) {
-    // Default values
-    def repoUrl = config.get('repoUrl', '')
-    def branch = config.get('branch', 'main')
-    def mvnCommand = config.get('mvnCommand', 'clean package')
-    def recipient = config.get('recipient', 'modihardik19@gmail.com')
 
-    stage('Checkout Code') {
-        echo "🔹 Cloning repository: ${repoUrl}"
-        echo "🔹 Branch: ${branch}"
-        checkout([
-            $class: 'GitSCM',
-            branches: [[name: "*/${branch}"]],
-            userRemoteConfigs: [[url: repoUrl]]
-        ])
-    }
+    pipeline {
+        agent any
 
-    stage('Build with Maven') {
-        echo "🔹 Running Maven command: ${mvnCommand}"
-        try {
-            sh "mvn ${mvnCommand}"
-            currentBuild.result = 'SUCCESS'
-        } catch (err) {
-            currentBuild.result = 'FAILURE'
-            error "❌ Build failed: ${err}"
+        stages {
+            stage('Maven Build') {
+                steps {
+                    script {
+                        echo "🔹 Running Maven command: ${config.mavenCommand ?: 'clean package'}"
+                        sh "${config.mavenCommand ?: 'mvn clean package'}"
+                    }
+                }
+            }
+
+            stage('Send Notification') {
+                steps {
+                    script {
+                        // create EmailNotifier instance with pipeline context
+                        def notifier = new org.opstree.utils.EmailNotifier(this)
+
+                        notifier.mail([
+                            to: config.to ?: 'modihardik19@gmail.com',
+                            subject: "Maven Build - ${currentBuild.currentResult}: ${config.repo ?: env.GIT_URL}",
+                            body: """
+                                Job: ${env.JOB_NAME}
+                                Build Number: ${env.BUILD_NUMBER}
+                                Status: ${currentBuild.currentResult}
+                                Repo: ${config.repo ?: env.GIT_URL}
+                                Console: ${env.BUILD_URL}
+                            """
+                        ])
+                    }
+                }
+            }
         }
-    }
-
-    stage('Send Notification') {
-        def status = currentBuild.result
-        def subject = "Maven Build - ${status}: ${repoUrl}"
-        def body = """
-        📦 **Maven Build Summary**
-        
-        🔗 Repository: ${repoUrl}
-        🌿 Branch: ${branch}
-        🛠 Command: mvn ${mvnCommand}
-        📊 Status: ${status}
-        
-        ✅ Jenkins Job: ${env.JOB_NAME}
-        🔁 Build Number: ${env.BUILD_NUMBER}
-        🔗 Build URL: ${env.BUILD_URL}
-        """
-
-        // Use the helper class for sending mail
-        org.opstree.utils.EmailNotifier.sendMail(recipient, subject, body)
     }
 }
